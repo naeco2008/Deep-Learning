@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import sklearn.datasets
 import h5py
+import math
 
 class LogisticRegressionDNN:
     """
@@ -20,13 +21,10 @@ class LogisticRegressionDNN:
         
         Returns:
         A -- output of sigmoid(z), same shape as Z
-        cache -- returns Z as well, useful during backpropagation
         """
-        
         A = 1/(1+np.exp(-Z))
-        cache = Z
         
-        return A, cache
+        return A
 
     def relu(self, Z):
         """
@@ -44,10 +42,9 @@ class LogisticRegressionDNN:
         
         assert(A.shape == Z.shape)
         
-        cache = Z 
-        return A, cache
+        return A
 
-    def relu_backward(self, dA, cache):
+    def relu_backward(self, dA, Z):
         """
         Implement the backward propagation for a single RELU unit.
 
@@ -59,7 +56,6 @@ class LogisticRegressionDNN:
         dZ -- Gradient of the cost with respect to Z
         """
         
-        Z = cache
         dZ = np.array(dA, copy=True) # just converting dz to a correct object.
         
         # When z <= 0, you should set dz to 0 as well. 
@@ -69,19 +65,16 @@ class LogisticRegressionDNN:
         
         return dZ
 
-    def sigmoid_backward(self, dA, cache):
+    def sigmoid_backward(self, dA, Z):
         """
         Implement the backward propagation for a single SIGMOID unit.
 
         Arguments:
         dA -- post-activation gradient, of any shape
-        cache -- 'Z' where we store for computing backward propagation efficiently
 
         Returns:
         dZ -- Gradient of the cost with respect to Z
         """
-        
-        Z = cache
         
         s = 1/(1+np.exp(-Z))
         dZ = dA * s * (1-s)
@@ -90,7 +83,7 @@ class LogisticRegressionDNN:
         
         return dZ
 
-    def initialize_parameters_deep(self, layer_dims):
+    def initialize_parameters(self, layer_dims):
         """
         Arguments:
         layer_dims -- python array (list) containing the dimensions of each layer in our network
@@ -105,7 +98,8 @@ class LogisticRegressionDNN:
         layer_size = len(layer_dims)  # number of layers in the network
 
         for layer in range(1, layer_size):
-            parameters['W' + str(layer)] = np.random.randn(layer_dims[layer], layer_dims[layer - 1]) * 0.01
+            #parameters['W' + str(layer)] = np.random.randn(layer_dims[layer], layer_dims[layer - 1]) * 0.01
+            parameters['W' + str(layer)] = np.random.randn(layer_dims[layer], layer_dims[layer - 1]) / np.sqrt(layer_dims[layer - 1]) #He method to initialize parameters, it is better than 0.01.
             parameters['b' + str(layer)] = np.zeros(shape=(layer_dims[layer], 1))
         
             assert(parameters['W' + str(layer)].shape == (layer_dims[layer], layer_dims[layer-1]))
@@ -113,68 +107,43 @@ class LogisticRegressionDNN:
 
         self.parameters = parameters
     
-    def linear_forward(self, A, W, b):
+    def initialize_adam(self):
         """
-        Implement the linear part of a layer's forward propagation.
+        Initializes v and s as two python dictionaries with:
+                    - keys: "dW1", "db1", ..., "dWL", "dbL" 
+                    - values: numpy arrays of zeros of the same shape as the corresponding gradients/parameters.
+        
+        Returns: 
+        v -- python dictionary that will contain the exponentially weighted average of the gradient.
+                        v["dW" + str(l)] = ...
+                        v["db" + str(l)] = ...
+        s -- python dictionary that will contain the exponentially weighted average of the squared gradient.
+                        s["dW" + str(l)] = ...
+                        s["db" + str(l)] = ...
 
-        Arguments:
-        A -- activations from previous layer (or input data): (size of previous layer, number of examples)
-        W -- weights matrix: numpy array of shape (size of current layer, size of previous layer)
-        b -- bias vector, numpy array of shape (size of the current layer, 1)
-
-        Returns:
-        Z -- the input of the activation function, also called pre-activation parameter 
-        cache -- a python dictionary containing "A", "W" and "b" ; stored for computing the backward pass efficiently
         """
-        Z = np.dot(W, A) + b
+        L = len(self.parameters) // 2 # number of layers in the neural networks
+        v = {}
+        s = {}
         
-        assert(Z.shape == (W.shape[0], A.shape[1]))
-        cache = (A, W, b)
+        # Initialize v, s. Input: "parameters". Outputs: "v, s".
+        for l in range(L):
+            v["dW" + str(l+1)] = np.zeros(self.parameters["W"+str(l+1)].shape)
+            v["db" + str(l+1)] = np.zeros(self.parameters["b"+str(l+1)].shape)
+            s["dW" + str(l+1)] = np.zeros(self.parameters["W"+str(l+1)].shape)
+            s["db" + str(l+1)] = np.zeros(self.parameters["b"+str(l+1)].shape)
         
-        return Z, cache
-    
-    def linear_activation_forward(self, A_prev, W, b, activation):
-        """
-        Implement the forward propagation for the LINEAR->ACTIVATION layer
+        return v, s
 
-        Arguments:
-        A_prev -- activations from previous layer (or input data): (size of previous layer, number of examples)
-        W -- weights matrix: numpy array of shape (size of current layer, size of previous layer)
-        b -- bias vector, numpy array of shape (size of the current layer, 1)
-        activation -- the activation to be used in this layer, stored as a text string: "sigmoid" or "relu"
-
-        Returns:
-        A -- the output of the activation function, also called the post-activation value 
-        cache -- a python dictionary containing "linear_cache" and "activation_cache";
-                stored for computing the backward pass efficiently
-        """
-        
-        if activation == "sigmoid":
-            # Inputs: "A_prev, W, b". Outputs: "A, activation_cache".
-            ### START CODE HERE ### (≈ 2 lines of code)
-            Z, linear_cache = self.linear_forward(A_prev, W, b)
-            A, activation_cache = self.sigmoid(Z)
-            ### END CODE HERE ###
-        
-        elif activation == "relu":
-            # Inputs: "A_prev, W, b". Outputs: "A, activation_cache".
-            ### START CODE HERE ### (≈ 2 lines of code)
-            Z, linear_cache = self.linear_forward(A_prev, W, b)
-            A, activation_cache = self.relu(Z)
-            ### END CODE HERE ###
-        
-        assert (A.shape == (W.shape[0], A_prev.shape[1]))
-        cache = (linear_cache, activation_cache)
-
-        return A, cache
-        
-    def forward_propagation(self, X):
+    def forward_propagation(self, X, dropout=False, keep_prob=0.5):
         """
         Implement forward propagation for the [LINEAR->RELU]*(L-1)->LINEAR->SIGMOID computation
         
         Arguments:
         X -- data, numpy array of shape (input size, number of examples)
-        
+        dropout -- indicate if use dropout technology to avoid overfitting. This should be False for predict. This is only used for training set.
+        keep_prob - probability of keeping a neuron active during drop-out, scalar
+
         Returns:
         AL -- last post-activation value
         caches -- list of caches containing:
@@ -182,111 +151,70 @@ class LogisticRegressionDNN:
                     the cache of linear_sigmoid_forward() (there is one, indexed L-1)
         """
 
-        caches = []
-        A = X
-        L = len(self.parameters) // 2                  # number of layers in the neural network
-        
+        layer_size = len(self.parameters) // 2                  # number of layers in the neural network
+
+        cache_A = {}
+        cache_A[0] = X
+
+        cache_Z = {}
+        cache_D = {}
+
+        np.random.seed(1)
+
         # Implement [LINEAR -> RELU]*(L-1). Add "cache" to the "caches" list.
-        for l in range(1, L):
-            A_prev = A 
-            ### START CODE HERE ### (≈ 2 lines of code)
-            A, cache = self.linear_activation_forward(A_prev, self.parameters['W'+str(l)], self.parameters['b'+str(l)], 'relu')
-            caches.append(cache)
-            ### END CODE HERE ###
-        
-        # Implement LINEAR -> SIGMOID. Add "cache" to the "caches" list.
-        ### START CODE HERE ### (≈ 2 lines of code)
-        AL, cache = self.linear_activation_forward(A, self.parameters['W'+str(L)], self.parameters['b'+str(L)], 'sigmoid')
-        caches.append(cache)
-        ### END CODE HERE ###
-        
+        for layer in range(1, layer_size + 1):
+            W, b = self.parameters['W'+str(layer)], self.parameters['b'+str(layer)]
+            cache_Z[layer] = np.dot(W, cache_A[layer - 1]) + b
+
+            if (layer == layer_size):
+                cache_A[layer] = self.sigmoid(cache_Z[layer])
+            else:
+                cache_A[layer] = self.relu(cache_Z[layer])
+
+            if dropout == True and layer != layer_size:  ## use dropout to avoid overfitting
+                cache_D[layer] = np.random.binomial(n=1,p=keep_prob,size=cache_A[layer].shape)
+                cache_A[layer] = cache_A[layer] * cache_D[layer]
+                cache_A[layer] = cache_A[layer] / keep_prob
+
+        AL = cache_A[layer_size]
         assert(AL.shape == (1,X.shape[1]))
                 
-        return AL, caches
+        return AL, cache_D, cache_A, cache_Z
 
-    def compute_cost(self, Y, AL):
+    def compute_cost(self, X, Y, AL, regularization=True, lambd = 0.7):
         """
         Computes the cross-entropy cost given in equation (13)
         
         Arguments:
         AL -- The sigmoid output of the last activation, of shape (1, number of examples)
         Y -- "true" labels vector of shape (1, number of examples)
-        parameters -- python dictionary containing your parameters W1, b1, W2 and b2
+        regularization -- indicate if L2-regularization is used to avoid overfitting. The default value is True
+        lambd -- the parameter for L2-regularization algorithm
         
         Returns:
         cost -- cross-entropy cost given equation (13)
         """
-        m = Y.shape[1]
+        m = X.shape[1]
 
-        cost = -1/m * np.sum(Y * np.log(AL) + (1 - Y) * np.log(1 - AL), axis = 1, keepdims = True)
+        parameter_num = int(len(self.parameters)/2)
 
-        cost = np.squeeze(cost)     # makes sure cost is the dimension we expect. 
-                                    # E.g., turns [[17]] into 17 
-        cost = np.float(cost)
+        cross_entropy_cost = -1/m * np.sum(Y * np.log(AL) + (1 - Y) * np.log(1 - AL), axis = 1, keepdims = True)
+        cross_entropy_cost = np.squeeze(cross_entropy_cost)     # makes sure cost is the dimension we expect. E.g., turns [[17]] into 17 
+        cross_entropy_cost = np.float(cross_entropy_cost)
         
+        L2_regularization_cost = 0
+        if regularization == True:
+            for item in range(0, parameter_num):
+                W_item = self.parameters["W"+str(item+1)]
+                L2_regularization_cost += np.sum(np.square(W_item))
+            L2_regularization_cost = L2_regularization_cost * lambd / (2 * m)
+        
+        cost = cross_entropy_cost + L2_regularization_cost
         assert(isinstance(cost, float))
         
         return cost
     
-    def linear_backward(self, dZ, cache):
-        """
-        Implement the linear portion of backward propagation for a single layer (layer l)
-
-        Arguments:
-        dZ -- Gradient of the cost with respect to the linear output (of current layer l)
-        cache -- tuple of values (A_prev, W, b) coming from the forward propagation in the current layer
-
-        Returns:
-        dA_prev -- Gradient of the cost with respect to the activation (of the previous layer l-1), same shape as A_prev
-        dW -- Gradient of the cost with respect to W (current layer l), same shape as W
-        db -- Gradient of the cost with respect to b (current layer l), same shape as b
-        """
-        A_prev, W, b = cache
-        m = A_prev.shape[1]
-        
-        ### START CODE HERE ### (≈ 3 lines of code)
-        dW = 1/m * np.dot(dZ, A_prev.T)
-        db = 1/m * np.sum(dZ, axis = 1, keepdims=True)
-        dA_prev = np.dot(W.T, dZ)
-        ### END CODE HERE ###
-        
-        assert (dA_prev.shape == A_prev.shape)
-        assert (dW.shape == W.shape)
-        assert (db.shape == b.shape)
-        
-        return dA_prev, dW, db
-
-    def linear_activation_backward(self, dA, cache, activation):
-        """
-        Implement the backward propagation for the LINEAR->ACTIVATION layer.
-        
-        Arguments:
-        dA -- post-activation gradient for current layer l 
-        cache -- tuple of values (linear_cache, activation_cache) we store for computing backward propagation efficiently
-        activation -- the activation to be used in this layer, stored as a text string: "sigmoid" or "relu"
-        
-        Returns:
-        dA_prev -- Gradient of the cost with respect to the activation (of the previous layer l-1), same shape as A_prev
-        dW -- Gradient of the cost with respect to W (current layer l), same shape as W
-        db -- Gradient of the cost with respect to b (current layer l), same shape as b
-        """
-        linear_cache, activation_cache = cache
-        
-        if activation == "relu":
-            ### START CODE HERE ### (≈ 2 lines of code)
-            dZ = self.relu_backward(dA, activation_cache)
-            dA_prev, dW, db = self.linear_backward(dZ, linear_cache)
-            ### END CODE HERE ###
-            
-        elif activation == "sigmoid":
-            ### START CODE HERE ### (≈ 2 lines of code)
-            dZ = self.sigmoid_backward(dA, activation_cache)
-            dA_prev, dW, db = self.linear_backward(dZ, linear_cache)
-            ### END CODE HERE ###
-        
-        return dA_prev, dW, db
-
-    def backward_propagation(self, AL, Y, caches):
+    def backward_propagation(self, AL, Y, cache_D, cache_A, cache_Z, regularization=True, lambd=0.7, dropout=False, keep_prob=0.5):
         """
         Implement the backward propagation for the [LINEAR->RELU] * (L-1) -> LINEAR -> SIGMOID group
         
@@ -296,6 +224,10 @@ class LogisticRegressionDNN:
         caches -- list of caches containing:
                     every cache of linear_activation_forward() with "relu" (it's caches[l], for l in range(L-1) i.e l = 0...L-2)
                     the cache of linear_activation_forward() with "sigmoid" (it's caches[L-1])
+        regularization -- indicate if L2-regularization technology will be used to avoid overfitting
+        lambd -- the regularization parameter
+        dropout -- indicate if dropout technology will be used to avoid overfitting
+        keep_prob -- threashold for dropout
         
         Returns:
         grads -- A dictionary with the gradients
@@ -304,49 +236,198 @@ class LogisticRegressionDNN:
                 grads["db" + str(l)] = ...
         """
         grads = {}
-        L = len(caches) # the number of layers
+        layer_size = len(self.parameters) // 2        # the number of layers
         m = AL.shape[1]
-        Y = Y.reshape(AL.shape) # after this line, Y is the same shape as AL
+        Y = Y.reshape(AL.shape)             # after this line, Y is the same shape as AL
+
+        assert(AL.shape == cache_A[layer_size].shape)
 
         # Initializing the backpropagation
-        ### START CODE HERE ### (1 line of code)
-        dAL = - (np.divide(Y, AL) - np.divide(1 - Y, 1 - AL))
-        ### END CODE HERE ###
-        
-        # Lth layer (SIGMOID -> LINEAR) gradients. Inputs: "AL, Y, caches". Outputs: "grads["dAL"], grads["dWL"], grads["dbL"]
-        ### START CODE HERE ### (approx. 2 lines)
-        current_cache = caches[L - 1]
-        grads["dA" + str(L)], grads["dW" + str(L)], grads["db" + str(L)] = self.linear_activation_backward(dAL, current_cache, 'sigmoid')
-        ### END CODE HERE ###
-        
-        for l in reversed(range(L - 1)):
-            # lth layer: (RELU -> LINEAR) gradients.
-            # Inputs: "grads["dA" + str(l + 2)], caches". Outputs: "grads["dA" + str(l + 1)] , grads["dW" + str(l + 1)] , grads["db" + str(l + 1)] 
-            ### START CODE HERE ### (approx. 5 lines)
-            current_cache = caches[l]
-            dA_prev_temp, dW_temp, db_temp = self.linear_activation_backward(grads["dA" + str(l + 2)], current_cache, 'relu')
-            grads["dA" + str(l + 1)] = dA_prev_temp
-            grads["dW" + str(l + 1)] = dW_temp
-            grads["db" + str(l + 1)] = db_temp
-            ### END CODE HERE ###
+        dAL = - Y / AL + (1 - Y) / (1 - AL)
+        grads["dA" + str(layer_size)] = dAL
 
+        for l in range(0, layer_size):
+            layer = layer_size - l
+
+            W = self.parameters["W"+str(layer)]
+            Z = cache_Z[layer]
+            dA = grads["dA" + str(layer)]
+
+            if (layer == layer_size):
+                dZ = self.sigmoid_backward(dA, Z)
+            else:
+                dZ = self.relu_backward(dA, Z)
+
+            grads["dA" + str(layer - 1)] = np.dot(W.T, dZ)
+            if (dropout == True) and (layer != 1):
+                D = cache_D[layer - 1]
+                grads["dA" + str(layer - 1)] *= D
+                grads["dA" + str(layer - 1)] /= keep_prob
+
+            if regularization:
+                grads["dW" + str(layer)] = 1 / m * np.dot(dZ, cache_A[layer - 1].T) + W * lambd / m
+            else:
+                grads["dW" + str(layer)] = 1 / m * np.dot(dZ, cache_A[layer - 1].T)
+
+            grads["db" + str(layer)] = 1 / m * np.sum(dZ, axis=1, keepdims=True)
+        
         return grads
 
-    def update_parameters(self, grads):
+    def update_parameters(self, grads, optimizer="gd", v = None, s = None, t = None, beta1 = 0.9, beta2 = 0.999,  epsilon = 1e-8):
         """
         Updates parameters using the gradient descent update rule given above
         
         Arguments:
         grads -- python dictionary containing your gradients 
+        optimizer -- indicate what optimizer we will use to update parameter. it contains: "gd" -- normal gradient decent. "adam" -- adam technology
+        v -- Adam variable, moving average of the first gradient, python dictionary
+        s -- Adam variable, moving average of the squared gradient, python dictionary
+        beta1 -- Exponential decay hyperparameter for the first moment estimates 
+        beta2 -- Exponential decay hyperparameter for the second moment estimates 
+        epsilon -- hyperparameter preventing division by zero in Adam updates
+
+        Returns:
+        v -- Adam variable, moving average of the first gradient, python dictionary
+        s -- Adam variable, moving average of the squared gradient, python dictionary
         """
 
         L = len(self.parameters) // 2 # number of layers in the neural network
+        v_corrected = {}                         # Initializing first moment estimate, python dictionary
+        s_corrected = {}                         # Initializing second moment estimate, python dictionary
 
         for layer in range(L):
-            self.parameters['W'+str(layer + 1)] -= grads['dW'+str(layer + 1)] * self.learning_rate
-            self.parameters['b'+str(layer + 1)] -= grads['db'+str(layer + 1)] * self.learning_rate
+            if optimizer == "gd":
+                self.parameters['W'+str(layer + 1)] -= grads['dW'+str(layer + 1)] * self.learning_rate
+                self.parameters['b'+str(layer + 1)] -= grads['db'+str(layer + 1)] * self.learning_rate
+            elif optimizer == "adam":
+                # Moving average of the gradients. Inputs: "v, grads, beta1". Output: "v".
+                v["dW" + str(layer+1)] = beta1 * v["dW" + str(layer+1)] + (1 - beta1) * grads["dW" + str(layer+1)]
+                v["db" + str(layer+1)] = beta1 * v["db" + str(layer+1)] + (1 - beta1) * grads["db" + str(layer+1)]
+
+                # Compute bias-corrected first moment estimate. Inputs: "v, beta1, t". Output: "v_corrected".
+                v_corrected["dW" + str(layer+1)] = v["dW" + str(layer+1)] / (1 - beta1 ** t)
+                v_corrected["db" + str(layer+1)] = v["db" + str(layer+1)] / (1 - beta1 ** t)
+
+                # Moving average of the squared gradients. Inputs: "s, grads, beta2". Output: "s".
+                s["dW" + str(layer+1)] = beta2 * s["dW" + str(layer+1)] + (1 - beta2) * np.square(grads["dW" + str(layer+1)])
+                s["db" + str(layer+1)] = beta2 * s["db" + str(layer+1)] + (1 - beta2) * np.square(grads["db" + str(layer+1)])
+
+                # Compute bias-corrected second raw moment estimate. Inputs: "s, beta2, t". Output: "s_corrected".
+                s_corrected["dW" + str(layer+1)] = s["dW" + str(layer+1)] / (1 - beta2 ** t)
+                s_corrected["db" + str(layer+1)] = s["db" + str(layer+1)] / (1 - beta2 ** t)
+
+                # Update parameters. Inputs: "parameters, learning_rate, v_corrected, s_corrected, epsilon". Output: "parameters".
+                self.parameters["W" + str(layer+1)] = self.parameters["W" + str(layer+1)] - self.learning_rate * v_corrected["dW" + str(layer+1)] / (epsilon + np.sqrt(s_corrected["dW" + str(layer+1)])) 
+                self.parameters["b" + str(layer+1)] = self.parameters["b" + str(layer+1)] - self.learning_rate * v_corrected["db" + str(layer+1)] / (epsilon + np.sqrt(s_corrected["db" + str(layer+1)])) 
+
+        return v, s
         
-    def fit(self, X, Y, layers_dims, print_cost=False):
+    def gradient_check(self, X, Y, layers_dims, epsilon = 1e-7):
+        """
+        Checks if backward_propagation_n computes correctly the gradient of the cost output by forward_propagation_n
+
+        Arguments:
+        x -- input datapoint, of shape (input size, 1)
+        y -- true "label"
+        epsilon -- tiny shift to the input to compute approximated gradient with formula(1)
+
+        Returns:
+        difference -- difference (2) between the approximated gradient and the backward propagation gradient
+        """
+        np.random.seed(3)
+
+        # intialize W, b
+        self.initialize_parameters(layers_dims)
+
+        # get gradients
+        AL, cache_D, cached_A, cached_Z = self.forward_propagation(X)
+        cost = self.compute_cost(X, Y, AL, regularization=False)
+        grads = self.backward_propagation(AL, Y, cache_D, cached_A, cached_Z, regularization=False)
+
+        # Set-up variables
+        parameters_values, _ = self.dictionary_to_vector(self.parameters)
+        grads_values, _ = self.gradient_to_vector(grads)
+
+        num_parameters = parameters_values.shape[0]
+        J_plus = np.zeros((num_parameters, 1))
+        J_minus = np.zeros((num_parameters, 1))
+        gradapprox = np.zeros((num_parameters, 1))
+
+        for i in range(0, num_parameters):
+            # Compute J_plus[i]. Inputs: "parameters_values, epsilon". Output = "J_plus[i]".
+            # "_" is used because the function you have to outputs two parameters but we only care about the first one
+            thetaplus = np.copy(parameters_values)                
+            thetaplus[i][0] = thetaplus[i][0] + epsilon
+            self.override_parameters(self.vector_to_dictionary(thetaplus, layers_dims))
+
+            AL, _, _, _ = self.forward_propagation(X)
+            J_plus[i] = self.compute_cost(X, Y, AL)
+            
+            # Compute J_minus[i]. Inputs: "parameters_values, epsilon". Output = "J_minus[i]".
+            thetaminus = np.copy(parameters_values)                          
+            thetaminus[i][0] = thetaminus[i][0] - epsilon                 
+            self.override_parameters(self.vector_to_dictionary(thetaminus, layers_dims))
+
+            AL, _, _, _ = self.forward_propagation(X)
+            J_minus[i] = self.compute_cost(X, Y, AL)
+            
+            # Compute gradapprox[i]
+            gradapprox[i] = (J_plus[i] - J_minus[i]) / (2 * epsilon)
+        
+        # Compare gradapprox to backward propagation gradients by computing difference.
+        numerator = np.linalg.norm(grads_values - gradapprox)                              
+        denominator = np.linalg.norm(gradapprox) + np.linalg.norm(grads_values)            
+        difference = numerator / denominator         
+
+        if difference > 1e-7:
+            print ("\033[93m" + "There is a mistake in the backward propagation! difference = " + str(difference) + "\033[0m")
+        else:
+            print ("\033[92m" + "Your backward propagation works perfectly fine! difference = " + str(difference) + "\033[0m")
+        
+        return difference
+
+    # GRADED FUNCTION: random_mini_batches
+
+    def random_mini_batches(self, X, Y, mini_batch_size = 64, seed = 0):
+        """
+        Creates a list of random minibatches from (X, Y)
+        
+        Arguments:
+        X -- input data, of shape (input size, number of examples)
+        Y -- true "label" vector (1 for blue dot / 0 for red dot), of shape (1, number of examples)
+        mini_batch_size -- size of the mini-batches, integer
+        
+        Returns:
+        mini_batches -- list of synchronous (mini_batch_X, mini_batch_Y)
+        """
+        
+        np.random.seed(seed)            # To make your "random" minibatches the same as ours
+        m = X.shape[1]                  # number of training examples
+        mini_batches = []
+            
+        # Step 1: Shuffle (X, Y)
+        permutation = list(np.random.permutation(m))
+        shuffled_X = X[:, permutation]
+        shuffled_Y = Y[:, permutation].reshape((1,m))
+
+        # Step 2: Partition (shuffled_X, shuffled_Y). Minus the end case.
+        num_complete_minibatches = math.floor(m/mini_batch_size) # number of mini batches of size mini_batch_size in your partitionning
+        for k in range(0, num_complete_minibatches):
+            mini_batch_X = shuffled_X[:, k*mini_batch_size:(k+1)*mini_batch_size]
+            mini_batch_Y = shuffled_Y[:, k*mini_batch_size:(k+1)*mini_batch_size]
+            mini_batch = (mini_batch_X, mini_batch_Y)
+            mini_batches.append(mini_batch)
+        
+        # Handling the end case (last mini-batch < mini_batch_size)
+        if m % mini_batch_size != 0:
+            mini_batch_X = shuffled_X[:, num_complete_minibatches*mini_batch_size:]
+            mini_batch_Y = shuffled_Y[:, num_complete_minibatches*mini_batch_size:]
+            mini_batch = (mini_batch_X, mini_batch_Y)
+            mini_batches.append(mini_batch)
+        
+        return mini_batches
+
+    def fit(self, X, Y, layers_dims, print_cost=False, dropout=False, keep_prob=0.5, optimizer="gd"):
         """
         Implements a L-layer neural network: [LINEAR->RELU]*(L-1)->LINEAR->SIGMOID.
 
@@ -358,14 +439,31 @@ class LogisticRegressionDNN:
         np.random.seed(3)
 
         # intialize W, b
-        self.initialize_parameters_deep(layers_dims)
+        self.initialize_parameters(layers_dims)
+        v, s = self.initialize_adam()
         self.costs = []
 
+        mini_batch_size = 64
+        seed = 10
+        t = 0
+
         for index in range(0, self.num_iterations):
-            AL, caches = self.forward_propagation(X)
-            cost = self.compute_cost(Y, AL)
-            grads = self.backward_propagation(AL, Y, caches)
-            self.update_parameters(grads)
+
+            # Define the random minibatches. We increment the seed to reshuffle differently the dataset after each epoch
+            seed = seed + 1
+            minibatches = self.random_mini_batches(X, Y, mini_batch_size, seed)
+
+            for minibatch in minibatches:
+                # Select a minibatch
+                (minibatch_X, minibatch_Y) = minibatch
+
+                # forward propagation
+                AL, cache_D, cached_A, cached_Z = self.forward_propagation(minibatch_X, dropout=dropout, keep_prob=keep_prob)
+                cost = self.compute_cost(minibatch_X, minibatch_Y, AL)
+                grads = self.backward_propagation(AL, minibatch_Y, cache_D, cached_A, cached_Z, regularization=True, dropout=dropout, keep_prob=keep_prob)
+
+                t = t + 1 # Adam counter
+                v, s = self.update_parameters(grads, optimizer, v, s, t)
 
             if (index % 100 == 0):
                 self.costs.append(cost)
@@ -390,7 +488,7 @@ class LogisticRegressionDNN:
         predictions -- vector of predictions of our model (red: 0 / blue: 1)
         """
         m = X.shape[1]
-        A, caches = self.forward_propagation(X)
+        A, _, _, _ = self.forward_propagation(X, dropout=False)
         predictions = np.zeros((1,m))
 
         # convert probas to 0/1 predictions
@@ -404,6 +502,60 @@ class LogisticRegressionDNN:
         print("Accuracy: "  + str(np.sum((predictions == y)/m)))
         
         return predictions
+
+    def dictionary_to_vector(self, parameters):
+        keys = []
+        count = 0
+        for key in parameters.keys():
+            
+            # flatten parameter
+            new_vector = np.reshape(parameters[key], (-1,1))
+            keys = keys + [key]*new_vector.shape[0]
+            
+            if count == 0:
+                theta = new_vector
+            else:
+                theta = np.concatenate((theta, new_vector), axis=0)
+            count = count + 1
+
+        return theta, keys
+
+    def gradient_to_vector(self, gradients):
+        keys = []
+        count = 0
+        for key in gradients.keys():
+            
+            if ((key.find("dW") == -1) and (key.find("db") == -1)):
+                continue
+
+            # flatten 
+            new_vector = np.reshape(gradients[key], (-1,1))
+            keys = keys + [key]*new_vector.shape[0]
+            
+            if count == 0:
+                theta = new_vector
+            else:
+                theta = np.concatenate((theta, new_vector), axis=0)
+            count = count + 1
+
+        return theta, keys
+
+    def vector_to_dictionary(self, theta, layer_dims):
+        parameters = {}
+        layer_size = len(layer_dims)
+        start = 0
+        for layer in range(1, layer_size):
+            size = layer_dims[layer] * layer_dims[layer - 1]
+            parameters['W'+str(layer)] = np.reshape(theta[start:(start+size)], (layer_dims[layer], layer_dims[layer - 1]))
+            start += size
+            parameters['b'+str(layer)] = np.reshape(theta[start:(start + layer_dims[layer])], (layer_dims[layer], 1))
+            start += layer_dims[layer]
+
+        return parameters
+
+    def override_parameters(self, parameters):
+        for key in self.parameters.keys():
+            self.parameters[key] = parameters[key]
 
 def load_data():
     train_dataset = h5py.File('datasets/train_catvnoncat.h5', "r")
@@ -433,9 +585,18 @@ if __name__ == '__main__':
     train_x = train_x_flatten/255.
     test_x = test_x_flatten/255.
 
-    layers_dims = [12288, 20, 7, 5, 1] #  5-layer model
     #layers_dims = [12288, 7, 1] #  2-layer model
-    lrDNN = LogisticRegressionDNN(learning_rate=0.0075, num_iterations = 25000)
-    lrDNN.fit(train_x, train_y, layers_dims, print_cost=True)
+    lrDNN = LogisticRegressionDNN(learning_rate=0.0007, num_iterations = 10000) #0.0075
 
+    # gradient check
+    # np.random.seed(1)
+    # layers_dims = [4, 5, 3, 1] #  5-layer model
+    # x = np.random.randn(4,3)
+    # y = np.array([1, 1, 0])
+    # lrDNN.gradient_check(x, y, layers_dims)
+
+    layers_dims = [12288, 20, 7, 5, 1] #  5-layer model
+    lrDNN.fit(train_x, train_y, layers_dims, print_cost=True, dropout=False, optimizer="adam")
+
+    pred_train = lrDNN.predict(train_x, train_y)
     pred_test = lrDNN.predict(test_x, test_y)
